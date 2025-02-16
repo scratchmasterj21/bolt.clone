@@ -7,6 +7,7 @@ import { Workbench } from '~/components/workbench/Workbench.client';
 import { classNames } from '~/utils/classNames';
 import { Messages } from './Messages.client';
 import { SendButton } from './SendButton.client';
+import { ImportButtons } from '~/components/chat/chatExportAndImport/ImportButtons';
 
 import styles from './BaseChat.module.scss';
 
@@ -25,6 +26,8 @@ interface BaseChatProps {
   sendMessage?: (event: React.UIEvent, messageInput?: string) => void;
   handleInputChange?: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
   enhancePrompt?: () => void;
+  importChat?: (description: string, messages: Message[]) => Promise<void>;
+
 }
 
 const EXAMPLE_PROMPTS = [
@@ -54,6 +57,8 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       handleInputChange,
       enhancePrompt,
       handleStop,
+      importChat,
+
     },
     ref,
   ) => {
@@ -204,6 +209,13 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                 </div>
               </div>
             )}
+                        <div className="flex flex-col justify-center gap-5">
+              {!chatStarted && (
+                <div className="flex justify-center gap-2">
+                  {ImportButtons(importChat)}
+                </div>
+              )}
+            </div>
           </div>
           <ClientOnly>{() => <Workbench chatStarted={chatStarted} isStreaming={isStreaming} />}</ClientOnly>
         </div>

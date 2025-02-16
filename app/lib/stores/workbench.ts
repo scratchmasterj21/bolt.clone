@@ -10,9 +10,16 @@ import { FilesStore, type FileMap } from './files';
 import { PreviewsStore } from './previews';
 import { TerminalStore } from './terminal';
 
+import * as nodePath from 'node:path';
+import { extractRelativePath } from '~/utils/diff';
+import { description } from '~/lib/persistence';
+import { createSampler } from '~/utils/sampler';
+import type { ActionAlert } from '~/types/actions';
+
 export interface ArtifactState {
   id: string;
   title: string;
+  type?: string;
   closed: boolean;
   runner: ActionRunner;
 }
@@ -29,21 +36,30 @@ export class WorkbenchStore {
   #editorStore = new EditorStore(this.#filesStore);
   #terminalStore = new TerminalStore(webcontainer);
 
+  #reloadedMessages = new Set<string>();
+
   artifacts: Artifacts = import.meta.hot?.data.artifacts ?? map({});
 
   showWorkbench: WritableAtom<boolean> = import.meta.hot?.data.showWorkbench ?? atom(false);
   currentView: WritableAtom<WorkbenchViewType> = import.meta.hot?.data.currentView ?? atom('code');
   unsavedFiles: WritableAtom<Set<string>> = import.meta.hot?.data.unsavedFiles ?? atom(new Set<string>());
+  actionAlert: WritableAtom<ActionAlert | undefined> =
+    import.meta.hot?.data.unsavedFiles ?? atom<ActionAlert | undefined>(undefined);
   modifiedFiles = new Set<string>();
   artifactIdList: string[] = [];
-
+  #globalExecutionQueue = Promise.resolve();
   constructor() {
     if (import.meta.hot) {
       import.meta.hot.data.artifacts = this.artifacts;
       import.meta.hot.data.unsavedFiles = this.unsavedFiles;
       import.meta.hot.data.showWorkbench = this.showWorkbench;
       import.meta.hot.data.currentView = this.currentView;
+      import.meta.hot.data.actionAlert = this.actionAlert;
     }
+  }
+
+  addToExecutionQueue(callback: () => Promise<void>) {
+    this.#globalExecutionQueue = this.#globalExecutionQueue.then(() => callback());
   }
 
   get previews() {
@@ -73,6 +89,15 @@ export class WorkbenchStore {
   get showTerminal() {
     return this.#terminalStore.showTerminal;
   }
+  get boltTerminal() {
+    return this.#terminalStore.boltTerminal;
+  }
+  get alert() {
+    return this.actionAlert;
+  }
+  clearAlert() {
+    this.actionAlert.set(undefined);
+  }
 
   toggleTerminal(value?: boolean) {
     this.#terminalStore.toggleTerminal(value);
@@ -80,6 +105,9 @@ export class WorkbenchStore {
 
   attachTerminal(terminal: ITerminal) {
     this.#terminalStore.attachTerminal(terminal);
+  }
+  attachBoltTerminal(terminal: ITerminal) {
+    this.#terminalStore.attachBoltTerminal(terminal);
   }
 
   onTerminalResize(cols: number, rows: number) {
@@ -214,7 +242,11 @@ export class WorkbenchStore {
     // TODO: what do we wanna do and how do we wanna recover from this?
   }
 
-  addArtifact({ messageId, title, id }: ArtifactCallbackData) {
+  setReloadedMessages(messages: string[]) {
+    this.#reloadedMessages = new Set(messages);
+  }
+
+  addArtifact({ messageId, title, id, type }: ArtifactCallbackData) {
     const artifact = this.#getArtifact(messageId);
 
     if (artifact) {
@@ -229,7 +261,18 @@ export class WorkbenchStore {
       id,
       title,
       closed: false,
-      runner: new ActionRunner(webcontainer),
+      type,
+      runner: new ActionRunner(
+        webcontainer,
+        () => this.boltTerminal,
+        (alert) => {
+          if (this.#reloadedMessages.has(messageId)) {
+            return;
+          }
+
+          this.actionAlert.set(alert);
+        },
+      ),
     });
   }
 
@@ -242,8 +285,12 @@ export class WorkbenchStore {
 
     this.artifacts.setKey(messageId, { ...artifact, ...state });
   }
+  addAction(data: ActionCallbackData) {
+    // this._addAction(data);
 
-  async addAction(data: ActionCallbackData) {
+    this.addToExecutionQueue(() => this._addAction(data));
+  }
+  async _addAction(data: ActionCallbackData) {
     const { messageId } = data;
 
     const artifact = this.#getArtifact(messageId);
@@ -252,10 +299,17 @@ export class WorkbenchStore {
       unreachable('Artifact not found');
     }
 
-    artifact.runner.addAction(data);
+    return artifact.runner.addAction(data);
   }
 
-  async runAction(data: ActionCallbackData) {
+  runAction(data: ActionCallbackData, isStreaming: boolean = false) {
+    if (isStreaming) {
+      this.actionStreamSampler(data, isStreaming);
+    } else {
+      this.addToExecutionQueue(() => this._runAction(data, isStreaming));
+    }
+  }
+  async _runAction(data: ActionCallbackData, isStreaming: boolean = false) {
     const { messageId } = data;
 
     const artifact = this.#getArtifact(messageId);
@@ -264,12 +318,79 @@ export class WorkbenchStore {
       unreachable('Artifact not found');
     }
 
-    artifact.runner.runAction(data);
+    const action = artifact.runner.actions.get()[data.actionId];
+
+    if (!action || action.executed) {
+      return;
+    }
+
+    if (data.action.type === 'file') {
+      const wc = await webcontainer;
+      const fullPath = nodePath.join(wc.workdir, data.action.filePath);
+
+      if (this.selectedFile.value !== fullPath) {
+        this.setSelectedFile(fullPath);
+      }
+
+      if (this.currentView.value !== 'code') {
+        this.currentView.set('code');
+      }
+
+      const doc = this.#editorStore.documents.get()[fullPath];
+
+      if (!doc) {
+        await artifact.runner.runAction(data, isStreaming);
+      }
+
+      this.#editorStore.updateFile(fullPath, data.action.content);
+
+      if (!isStreaming) {
+        await artifact.runner.runAction(data);
+        this.resetAllFileModifications();
+      }
+    } else {
+      await artifact.runner.runAction(data);
+    }
   }
+
+  actionStreamSampler = createSampler(async (data: ActionCallbackData, isStreaming: boolean = false) => {
+    return await this._runAction(data, isStreaming);
+  }, 100); // TODO: remove this magic number to have it configurable
 
   #getArtifact(id: string) {
     const artifacts = this.artifacts.get();
     return artifacts[id];
+  }
+
+  async syncFiles(targetHandle: FileSystemDirectoryHandle) {
+    const files = this.files.get();
+    const syncedFiles = [];
+
+    for (const [filePath, dirent] of Object.entries(files)) {
+      if (dirent?.type === 'file' && !dirent.isBinary) {
+        const relativePath = extractRelativePath(filePath);
+        const pathSegments = relativePath.split('/');
+        let currentHandle = targetHandle;
+
+        for (let i = 0; i < pathSegments.length - 1; i++) {
+          currentHandle = await currentHandle.getDirectoryHandle(pathSegments[i], { create: true });
+        }
+
+        // create or get the file
+        const fileHandle = await currentHandle.getFileHandle(pathSegments[pathSegments.length - 1], {
+          create: true,
+        });
+
+        // write the file content
+        const writable = await fileHandle.createWritable();
+        await writable.write(dirent.content);
+        await writable.close();
+
+        syncedFiles.push(relativePath);
+      }
+    }
+
+    return syncedFiles;
   }
 }
 

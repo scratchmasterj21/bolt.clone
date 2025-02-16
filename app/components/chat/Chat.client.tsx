@@ -23,11 +23,19 @@ const logger = createScopedLogger('Chat');
 export function Chat() {
   renderLogger.trace('Chat');
 
-  const { ready, initialMessages, storeMessageHistory } = useChatHistory();
-
+  const { ready, initialMessages, storeMessageHistory, importChat } = useChatHistory();
+  useEffect(() => {
+    workbenchStore.setReloadedMessages(initialMessages.map((m) => m.id));
+  }, [initialMessages]);
   return (
     <>
-      {ready && <ChatImpl initialMessages={initialMessages} storeMessageHistory={storeMessageHistory} />}
+      {ready && (
+        <ChatImpl
+          initialMessages={initialMessages}
+          storeMessageHistory={storeMessageHistory}
+          importChat={importChat}
+        />
+      )}
       <ToastContainer
         closeButton={({ closeToast }) => {
           return (
@@ -62,9 +70,10 @@ export function Chat() {
 interface ChatProps {
   initialMessages: Message[];
   storeMessageHistory: (messages: Message[]) => Promise<void>;
+  importChat: (description: string, messages: Message[]) => Promise<void>;
 }
 
-export const ChatImpl = memo(({ initialMessages, storeMessageHistory }: ChatProps) => {
+export const ChatImpl = memo(({ initialMessages, storeMessageHistory, importChat }: ChatProps) => {
   useShortcuts();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -213,6 +222,7 @@ export const ChatImpl = memo(({ initialMessages, storeMessageHistory }: ChatProp
       scrollRef={scrollRef}
       handleInputChange={handleInputChange}
       handleStop={abort}
+      importChat={importChat}
       messages={messages.map((message, i) => {
         if (message.role === 'user') {
           return message;

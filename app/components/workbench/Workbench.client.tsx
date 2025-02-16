@@ -1,7 +1,7 @@
 import { useStore } from '@nanostores/react';
 import { motion, type HTMLMotionProps, type Variants } from 'framer-motion';
 import { computed } from 'nanostores';
-import { memo, useCallback, useEffect } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import {
   type OnChangeCallback as OnEditorChange,
@@ -54,6 +54,7 @@ const workbenchVariants = {
 
 export const Workbench = memo(({ chatStarted, isStreaming }: WorkspaceProps) => {
   renderLogger.trace('Workbench');
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const hasPreview = useStore(computed(workbenchStore.previews, (previews) => previews.length > 0));
   const showWorkbench = useStore(workbenchStore.showWorkbench);
@@ -99,6 +100,21 @@ export const Workbench = memo(({ chatStarted, isStreaming }: WorkspaceProps) => 
     workbenchStore.resetCurrentDocument();
   }, []);
 
+  const handleSyncFiles = useCallback(async () => {
+    setIsSyncing(true);
+
+    try {
+      const directoryHandle = await window.showDirectoryPicker();
+      await workbenchStore.syncFiles(directoryHandle);
+      toast.success('Files synced successfully');
+    } catch (error) {
+      console.error('Error syncing files:', error);
+      toast.error('Failed to sync files');
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
   return (
     chatStarted && (
       <motion.div
@@ -122,6 +138,11 @@ export const Workbench = memo(({ chatStarted, isStreaming }: WorkspaceProps) => 
                 <Slider selected={selectedView} options={sliderOptions} setSelected={setSelectedView} />
                 <div className="ml-auto" />
                 {selectedView === 'code' && (
+                  <div className="flex overflow-y-auto">
+                    <PanelHeaderButton className="mr-1 text-sm" onClick={handleSyncFiles} disabled={isSyncing}>
+                      {isSyncing ? <div className="i-ph:spinner" /> : <div className="i-ph:cloud-arrow-down" />}
+                      {isSyncing ? 'Syncing...' : 'Sync Files'}
+                    </PanelHeaderButton>
                   <PanelHeaderButton
                     className="mr-1 text-sm"
                     onClick={() => {
@@ -131,6 +152,7 @@ export const Workbench = memo(({ chatStarted, isStreaming }: WorkspaceProps) => 
                     <div className="i-ph:terminal" />
                     Toggle Terminal
                   </PanelHeaderButton>
+                  </div>
                 )}
                 <IconButton
                   icon="i-ph:x-circle"
