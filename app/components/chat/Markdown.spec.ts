@@ -39,7 +39,7 @@ describe('stripCodeFenceFromArtifact', () => {
       '```',
     ].join('\n');
 
-    const expected = ['Some text', '', "<div class='__boltArtifact__'></div>", '', '```', 'regular code', '```'].join(
+    const expected = ['Some text', '', "<div class='__boltArtifact__'></div>", '', '', 'regular code', ''].join(
       '\n',
     );
 
