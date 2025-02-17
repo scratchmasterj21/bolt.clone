@@ -1,5 +1,5 @@
-import type { Message } from 'ai';
-import React, { type RefCallback } from 'react';
+import type { JSONValue, Message } from 'ai';
+import React, { type RefCallback ,useEffect, useState } from 'react';
 import { ClientOnly } from 'remix-utils/client-only';
 import { Menu } from '~/components/sidebar/Menu.client';
 import { IconButton } from '~/components/ui/IconButton';
@@ -10,6 +10,10 @@ import { SendButton } from './SendButton.client';
 import { ImportButtons } from '~/components/chat/chatExportAndImport/ImportButtons';
 import StarterTemplates from './StarterTemplates';
 import { ExamplePrompts } from '~/components/chat/ExamplePrompts';
+import * as Tooltip from '@radix-ui/react-tooltip';
+import type { ProgressAnnotation } from '~/types/context';
+import ProgressCompilation from './ProgressCompilation';
+
 
 import styles from './BaseChat.module.scss';
 
@@ -29,6 +33,7 @@ interface BaseChatProps {
   handleInputChange?: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
   enhancePrompt?: () => void;
   importChat?: (description: string, messages: Message[]) => Promise<void>;
+  data?: JSONValue[] | undefined;
 
 }
 
@@ -60,17 +65,30 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       enhancePrompt,
       handleStop,
       importChat,
+      data,
 
     },
     ref,
   ) => {
     const TEXTAREA_MAX_HEIGHT = chatStarted ? 400 : 200;
+    const [progressAnnotations, setProgressAnnotations] = useState<ProgressAnnotation[]>([]);
+
+    useEffect(() => {
+      if (data) {
+        const progressList = data.filter(
+          (x) => typeof x === 'object' && (x as any).type === 'progress',
+        ) as ProgressAnnotation[];
+        setProgressAnnotations(progressList);
+      }
+    }, [data]);
+
     const handleSendMessage = (event: React.UIEvent, messageInput?: string) => {
       if (sendMessage) {
         sendMessage(event, messageInput);
       }
     };
-    return (
+    const baseChat = (
+
       <div
         ref={ref}
         className={classNames(
@@ -113,7 +131,9 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                 className={classNames('relative w-full max-w-chat mx-auto z-prompt', {
                   'sticky bottom-0': chatStarted,
                 })}
-              >
+              >                
+              {progressAnnotations && <ProgressCompilation data={progressAnnotations} />}
+
                 <div
                   className={classNames(
                     'shadow-sm border border-bolt-elements-borderColor bg-bolt-elements-prompt-background backdrop-filter backdrop-blur-[8px] rounded-lg overflow-hidden',
@@ -219,5 +239,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
         </div>
       </div>
     );
+    return <Tooltip.Provider delayDuration={200}>{baseChat}</Tooltip.Provider>;
   },
 );

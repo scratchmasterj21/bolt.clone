@@ -1,8 +1,12 @@
 import type { Message } from 'ai';
-import React from 'react';
 import { classNames } from '~/utils/classNames';
 import { AssistantMessage } from './AssistantMessage';
 import { UserMessage } from './UserMessage';
+import WithTooltip from '~/components/ui/Tooltip';
+import { forwardRef } from 'react';
+import type { ForwardedRef } from 'react';
+import { useLocation } from '@remix-run/react';
+import { Fragment } from 'react';
 
 interface MessagesProps {
   id?: string;
@@ -11,17 +15,29 @@ interface MessagesProps {
   messages?: Message[];
 }
 
-export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: MessagesProps, ref) => {
+export const Messages = forwardRef<HTMLDivElement, MessagesProps>(
+  (props: MessagesProps, ref: ForwardedRef<HTMLDivElement> | undefined) => {
   const { id, isStreaming = false, messages = [] } = props;
+  const location = useLocation();
 
+  const handleRewind = (messageId: string) => {
+    const searchParams = new URLSearchParams(location.search);
+    searchParams.set('rewindTo', messageId);
+    window.location.search = searchParams.toString();
+  };
   return (
     <div id={id} ref={ref} className={props.className}>
       {messages.length > 0
         ? messages.map((message, index) => {
-            const { role, content } = message;
+            const { role, content, id: messageId, annotations } = message;
             const isUserMessage = role === 'user';
             const isFirst = index === 0;
             const isLast = index === messages.length - 1;
+            const isHidden = annotations?.includes('hidden');
+
+            if (isHidden) {
+              return <Fragment key={index} />;
+            }
 
             return (
               <div
@@ -39,8 +55,27 @@ export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: 
                   </div>
                 )}
                 <div className="grid grid-col-1 w-full">
-                  {isUserMessage ? <UserMessage content={content} /> : <AssistantMessage content={content} />}
-                </div>
+                {isUserMessage ? (
+                      <UserMessage content={content} />
+                    ) : (
+                      <AssistantMessage content={content} annotations={message.annotations} />
+                    )}                </div>
+                {!isUserMessage && (
+                    <div className="flex gap-2 flex-col lg:flex-row">
+                      {messageId && (
+                        <WithTooltip tooltip="Revert to this message">
+                          <button
+                            onClick={() => handleRewind(messageId)}
+                            key="i-ph:arrow-u-up-left"
+                            className={classNames(
+                              'i-ph:arrow-u-up-left',
+                              'text-xl text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary transition-colors',
+                            )}
+                          />
+                        </WithTooltip>
+                      )}
+                    </div>
+                  )}
               </div>
             );
           })
