@@ -51,24 +51,16 @@ async function enhancerAction({ context, request }: ActionFunctionArgs) {
       context.cloudflare.env,
     );
 
-    const transformStream = new TransformStream({
-      transform(chunk, controller) {
-        const processedChunk = decoder
-          .decode(chunk)
-          .split('\n')
-          .filter((line) => line !== '')
-          .map(parseStreamPart)
-          .map((part) => part.value)
-          .join('');
-
-        controller.enqueue(encoder.encode(processedChunk));
+    return new Response(result.textStream, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        Connection: 'keep-alive',
+        'Cache-Control': 'no-cache',
+        'Text-Encoding': 'chunked',
       },
     });
-
-    const transformedStream = result.toAIStream().pipeThrough(transformStream);
-
-    return new StreamingTextResponse(transformedStream);
-  } catch (error) {
+  } catch (error: unknown) {
     console.log(error);
 
     throw new Response(null, {
