@@ -84,7 +84,8 @@ export const ChatImpl = memo(({ initialMessages, storeMessageHistory, importChat
 
   const [animationScope, animate] = useAnimate();
 
-  const { messages, isLoading, input, handleInputChange, setInput, stop, append } = useChat({
+  const { messages, isLoading, input, handleInputChange, setInput, stop, append, data: chatData,
+  } = useChat({
     api: '/api/chat',
     onError: (error) => {
       logger.error('Request failed\n\n', error);
@@ -239,6 +240,8 @@ export const ChatImpl = memo(({ initialMessages, storeMessageHistory, importChat
           scrollTextArea();
         });
       }}
+      data={chatData}
+
     />
   );
 });

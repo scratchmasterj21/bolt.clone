@@ -1,4 +1,4 @@
-import { useLoaderData, useNavigate } from '@remix-run/react';
+import { useLoaderData, useNavigate, useSearchParams } from '@remix-run/react';
 import { useState, useEffect } from 'react';
 import { atom } from 'nanostores';
 import type { Message } from 'ai';
@@ -29,6 +29,7 @@ export const chatMetadata = atom<IChatMetadata | undefined>(undefined);
 export function useChatHistory() {
   const navigate = useNavigate();
   const { id: mixedId } = useLoaderData<{ id?: string }>();
+  const [searchParams] = useSearchParams();
 
   const [initialMessages, setInitialMessages] = useState<Message[]>([]);
   const [ready, setReady] = useState<boolean>(false);
@@ -49,11 +50,18 @@ export function useChatHistory() {
       getMessages(db, mixedId)
         .then((storedMessages) => {
           if (storedMessages && storedMessages.messages.length > 0) {
-            setInitialMessages(storedMessages.messages);
-            setUrlId(storedMessages.urlId);
-            description.set(storedMessages.description);
-            chatId.set(storedMessages.id);
-            chatMetadata.set(storedMessages.metadata);
+
+            const rewindId = searchParams.get('rewindTo');
+
+            const filteredMessages = rewindId
+
+              ? storedMessages.messages.slice(0, storedMessages.messages.findIndex((m) => m.id === rewindId) + 1)
+
+              : storedMessages.messages;
+
+
+
+            setInitialMessages(filteredMessages);
 
           } else {
             navigate(`/`, { replace: true });
